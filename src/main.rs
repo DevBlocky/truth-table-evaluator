@@ -1,19 +1,17 @@
-use std::collections::HashMap;
-
 mod op;
 
 #[derive(Debug)]
 struct VariableMap {
-    map: HashMap<char, bool>,
+    vstates: Vec<(char, bool)>,
 }
 impl VariableMap {
     fn from_binary(variables: &[char], n: usize) -> VariableMap {
-        let mut map = HashMap::new();
+        let mut vstates = Vec::new();
         for (i, var) in variables.iter().enumerate() {
             let set = (n & (1 << i)) != 0;
-            map.insert(*var, set);
+            vstates.push((*var, set))
         }
-        VariableMap { map }
+        VariableMap { vstates }
     }
 
     fn all(variables: &[char]) -> Vec<VariableMap> {
@@ -23,8 +21,12 @@ impl VariableMap {
     }
 
     fn check(&self, p: char) -> bool {
-        assert!(self.map.contains_key(&p));
-        self.map[&p]
+        for (var, state) in &self.vstates {
+            if *var == p {
+                return *state;
+            }
+        }
+        false
     }
 }
 
@@ -60,57 +62,80 @@ impl Expression {
                 for arg in args {
                     vars.extend(arg.search_variables());
                 }
+                vars.sort_unstable();
                 vars.dedup();
                 vars
             }
         }
     }
 }
+impl From<char> for Expression {
+    fn from(c: char) -> Expression {
+        Expression::Variable(c)
+    }
+}
+impl From<bool> for Expression {
+    fn from(b: bool) -> Expression {
+        Expression::Constant(b)
+    }
+}
+impl From<&str> for Expression {
+    fn from(s: &str) -> Expression {
+        let mut chars = s.chars();
+        let c = chars.next().unwrap();
+        match c {
+            '!' => Expression::Expr {
+                args: vec![chars.next().unwrap().into()],
+                op: Box::new(op::Negate),
+            },
+            c => c.into(),
+        }
+    }
+}
 
-/// HELPER SHIT ///
-impl Into<Expression> for bool {
-    fn into(self) -> Expression {
-        Expression::Constant(self)
+macro_rules! impl_helper {
+    {$op:expr, $fn_name:ident, $($arg:ident)+} => {
+        fn $fn_name<$($arg),+>($($arg: $arg),+) -> Expression
+        where
+            $($arg: Into<Expression>),+
+        {
+            Expression::Expr {
+                args: vec![ $($arg.into()),+ ],
+                op: Box::new($op)
+            }
+        }
     }
 }
-impl Into<Expression> for char {
-    fn into(self) -> Expression {
-        Expression::Variable(self)
-    }
-}
-
-fn not<A1: Into<Expression>>(a: A1) -> Expression {
-    Expression::Expr {
-        args: vec![a.into()],
-        op: Box::new(op::Negate),
-    }
-}
-fn and<A1: Into<Expression>, A2: Into<Expression>>(a: A1, b: A2) -> Expression {
-    Expression::Expr {
-        args: vec![a.into(), b.into()],
-        op: Box::new(op::And),
-    }
-}
-fn or<A1: Into<Expression>, A2: Into<Expression>>(a: A1, b: A2) -> Expression {
-    Expression::Expr {
-        args: vec![a.into(), b.into()],
-        op: Box::new(op::Or),
-    }
-}
-fn implies<A1: Into<Expression>, A2: Into<Expression>>(a: A1, b: A2) -> Expression {
-    Expression::Expr {
-        args: vec![a.into(), b.into()],
-        op: Box::new(op::Implies),
-    }
-}
+impl_helper! {op::Negate, not, a}
+impl_helper! {op::Or, or, a b}
+impl_helper! {op::Or, or3, a b c}
+impl_helper! {op::Or, or4, a b c d}
+impl_helper! {op::And, and, a b}
+impl_helper! {op::And, and3, a b c}
+impl_helper! {op::And, and5, a b c d e}
+impl_helper! {op::Implies, implies, a b}
 
 fn main() {
     // define expressions
     let exprs = vec![
-        implies(and(implies('p', 'r'), 'q'), not('t')),
-        not(and(or(not('p'), 'r'), and('q', 't'))),
-        or(and('p', not('r')), or(not('q'), not('t'))),
-        and(or('p', or(not('q'), not('t'))), or(not('r'), or(not('q'), not('t')))),
+        or(
+            implies('t', and(not('q'), 't')),
+            and3('q', not('r'), or('p', and3(not('p'), 's', 't'))),
+        ),
+        or3(
+            or(not('t'), not('q')),
+            and3(not('r'), 'q', 'p'),
+            and5(not('r'), 'q', not('p'), 's', 't'),
+        ),
+        and3(
+            or3("!t", "!q", "q"),
+            or3("!t", "!q", "!r"),
+            or4("!t", "!q", "p", and3("!p", "s", "t")),
+        ),
+        and(
+            or3("!t", "!q", "!r"),
+            or4("!t", "!q", "p", "s"),
+        )
     ];
 
     // setup table
